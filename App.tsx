@@ -75,7 +75,7 @@ const App: React.FC = () => {
       case AppState.PROCESSING:
         return <ProcessingScreen />;
       case AppState.RESULTS:
-        return generatedAssets ? <ResultsScreen assets={generatedAssets} jobDetails={jobDetails} /> : <ProcessingScreen />;
+        return generatedAssets ? <ResultsScreen assets={generatedAssets} jobDetails={jobDetails} originalResumeImages={resumeImages} /> : <ProcessingScreen />;
       default:
         return <HomeScreen onStart={handleStart} />;
     }

@@ -7,11 +7,12 @@ import { usePdfGenerator } from '../hooks/usePdfGenerator';
 interface ResultsScreenProps {
   assets: GeneratedAssets;
   jobDetails: JobDetails | null;
+  originalResumeImages: string[];
 }
 
 type ActiveTab = 'resume' | 'coverLetter' | 'changes' | 'originalText';
 
-const ResultsScreen: React.FC<ResultsScreenProps> = ({ assets, jobDetails }) => {
+const ResultsScreen: React.FC<ResultsScreenProps> = ({ assets, jobDetails, originalResumeImages }) => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('resume');
   const [copied, setCopied] = useState(false);
   const { downloadImagesAsPdf, downloadTextAsPdf } = usePdfGenerator();
@@ -45,7 +46,7 @@ const ResultsScreen: React.FC<ResultsScreenProps> = ({ assets, jobDetails }) => 
   );
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-7xl mx-auto">
         <div className="bg-gray-800/50 p-6 sm:p-8 rounded-lg shadow-2xl border border-gray-700">
             <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6 pb-6 border-b border-gray-700">
                 <div>
@@ -65,14 +66,29 @@ const ResultsScreen: React.FC<ResultsScreenProps> = ({ assets, jobDetails }) => 
                 {activeTab === 'resume' && (
                     <div>
                         <div className="flex justify-end mb-4">
-                            <Button onClick={handleDownloadResume}>Download Resume (PDF)</Button>
+                            <Button onClick={handleDownloadResume}>Download Tailored Resume (PDF)</Button>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                            {assets.tailoredResumeImages.map((src, index) => (
-                                <div key={index} className="aspect-[8.5/11] border border-gray-600 rounded-md overflow-hidden shadow-lg mx-auto max-w-full">
-                                    <img src={src} alt={`Tailored Resume Page ${index + 1}`} className="object-contain w-full h-full bg-white" />
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            <div>
+                                <h3 className="text-xl font-bold text-white mb-4 text-center sticky top-[88px] bg-gray-800/80 backdrop-blur-sm py-2 z-10 rounded-md">Original Resume</h3>
+                                <div className="space-y-8">
+                                    {originalResumeImages.map((src, index) => (
+                                        <div key={`orig-${index}`} className="aspect-[8.5/11] border border-gray-600 rounded-md overflow-hidden shadow-lg mx-auto max-w-full bg-white">
+                                            <img src={src} alt={`Original Resume Page ${index + 1}`} className="object-contain w-full h-full" />
+                                        </div>
+                                    ))}
                                 </div>
-                            ))}
+                            </div>
+                            <div>
+                                <h3 className="text-xl font-bold text-white mb-4 text-center sticky top-[88px] bg-gray-800/80 backdrop-blur-sm py-2 z-10 rounded-md">Tailored Resume</h3>
+                                <div className="space-y-8">
+                                    {assets.tailoredResumeImages.map((src, index) => (
+                                        <div key={`tailored-${index}`} className="aspect-[8.5/11] border border-gray-600 rounded-md overflow-hidden shadow-lg mx-auto max-w-full bg-white">
+                                            <img src={src} alt={`Tailored Resume Page ${index + 1}`} className="object-contain w-full h-full" />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}

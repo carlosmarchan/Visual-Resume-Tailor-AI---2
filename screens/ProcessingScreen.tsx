@@ -1,13 +1,14 @@
-
 import React, { useState, useEffect } from 'react';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 const messages = [
-  "Analyzing your resume's unique design...",
-  "Identifying key skills in the job description...",
-  "Crafting compelling, tailored bullet points...",
-  "Replicating your resume's layout with new content...",
-  "Generating a professional cover letter...",
+  "Analyzing your resume and the job description...",
+  "Identifying key skills and opportunities...",
+  "Drafting a new summary and experience points...",
+  "Writing a compelling, tailored cover letter...",
+  "Content draft complete! Now for the visual magic...",
+  "Rebuilding your resume design with the new text...",
+  "Ensuring every font, color, and pixel is perfect...",
   "Finalizing your personalized application assets...",
 ];
 
@@ -16,7 +17,14 @@ const ProcessingScreen: React.FC = () => {
 
     useEffect(() => {
         const interval = setInterval(() => {
-            setCurrentMessageIndex((prevIndex) => (prevIndex + 1) % messages.length);
+            setCurrentMessageIndex((prevIndex) => {
+                // Stop cycling if it reaches the end.
+                if (prevIndex === messages.length - 1) {
+                    clearInterval(interval);
+                    return prevIndex;
+                }
+                return prevIndex + 1;
+            });
         }, 3000);
 
         return () => clearInterval(interval);
