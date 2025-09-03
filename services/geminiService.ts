@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Modality, Part, Type } from "@google/genai";
 import { GeneratedAssets, JobDetails } from "../types";
 
@@ -118,57 +117,49 @@ const generateTextAssets = async (
 };
 
 /**
- * STEP 2: Generates new resume images using the original images as a template and new text.
+ * STEP 2: Generates a new resume image using an original image as a template and new text.
  */
-const generateImageAssets = async (
-  resumeImageChunk: string[],
-  newTextChunk: string[]
-): Promise<string[]> => {
-    let textForPrompt = '';
-    newTextChunk.forEach((text, index) => {
-        textForPrompt += `
---- START TEXT FOR IMAGE ${index + 1} ---
-${text}
---- END TEXT FOR IMAGE ${index + 1} ---
-`;
-    });
-
+const generateImageAsset = async (
+  resumeImageBase64: string,
+  newText: string,
+  pageNumber: number
+): Promise<string> => {
+    console.log(`Generating image for page ${pageNumber}...`);
     const prompt = `
-        You are a visual design replication assistant. Your task is to create a new set of images based on templates, but with updated text.
+        You are a visual design replication assistant. Your task is to create a new image based on a template, but with updated text.
 
         **Instructions:**
-        1. **Use as Template:** The provided images are visual templates. Pay close attention to the layout, fonts, colors, spacing, and all other design elements.
-        2. **Replace Text:** Replace the text in each input image with its corresponding new text. The new text is provided in numbered blocks. Use the text from "TEXT FOR IMAGE 1" on the first input image, "TEXT FOR IMAGE 2" on the second, and so on.
-        3. **Maintain Fidelity:** The new images must be a perfect visual replica of the original templates. The only difference should be the text content. The number of output images must exactly match the number of input images (${resumeImageChunk.length}).
+        1. **Use as Template:** The provided image is a visual template. Pay close attention to its layout, fonts, colors, spacing, and all other design elements.
+        2. **Replace Text:** Replace all the text in the input image with the new text provided below.
+        3. **Maintain Fidelity:** The new image must be a perfect visual replica of the original template. The only difference should be the text content. The output must be a single image.
 
         **CRITICAL:** Do not alter the design in any way. Your sole focus is replacing the text while maintaining 100% visual fidelity.
 
         **New Text to Insert:**
-        ${textForPrompt}
+        ---
+        ${newText}
+        ---
     `;
-    const imageParts = resumeImageChunk.map(base64ToPart);
+    const imagePart = base64ToPart(resumeImageBase64);
     const textPart = { text: prompt };
 
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image-preview',
-        contents: { parts: [...imageParts, textPart] },
+        contents: { parts: [imagePart, textPart] },
         config: {
             responseModalities: [Modality.IMAGE],
         },
     });
-
-    const generatedImages: string[] = [];
+    
     for (const part of response.candidates[0].content.parts) {
         if (part.inlineData) {
-            generatedImages.push(`data:${part.inlineData.mimeType};base64,${part.inlineData.data}`);
+            console.log(`Successfully generated image for page ${pageNumber}.`);
+            return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
         }
     }
-
-    if (generatedImages.length === 0) {
-        throw new Error("AI failed to generate any images in this chunk.");
-    }
-
-    return generatedImages;
+    
+    console.error(`AI failed to generate an image for page ${pageNumber}. Raw response:`, JSON.stringify(response, null, 2));
+    throw new Error(`AI failed to generate an image for page ${pageNumber}.`);
 };
 
 /**
@@ -186,29 +177,17 @@ export const generateTailoredAssets = async (
         throw new Error(`AI text generation mismatch: Expected text for ${resumeImagesBase64.length} pages, but received text for ${textAssets.rewrittenResumeText?.length || 0} pages.`);
     }
 
-    // Step 2: Use the generated text to create the new resume images, processing in chunks.
-    console.log(`Step 2: Generating ${resumeImagesBase64.length} new visual resume pages in chunks...`);
+    // Step 2: Use the generated text to create the new resume images, processing each page individually in parallel.
+    console.log(`Step 2: Generating ${resumeImagesBase64.length} new visual resume pages in parallel...`);
     
-    const chunkSize = 4; // Model can process up to 4 images at a time
-    const allNewImages: string[] = [];
+    const imageGenerationPromises = resumeImagesBase64.map((image, index) => 
+        generateImageAsset(image, textAssets.rewrittenResumeText[index], index + 1)
+    );
 
-    for (let i = 0; i < resumeImagesBase64.length; i += chunkSize) {
-        const imageChunk = resumeImagesBase64.slice(i, i + chunkSize);
-        const textChunk = textAssets.rewrittenResumeText.slice(i, i + chunkSize);
-        
-        console.log(`Processing chunk starting at page ${i + 1}: ${imageChunk.length} pages...`);
-        
-        const generatedChunk = await generateImageAssets(imageChunk, textChunk);
-
-        if (generatedChunk.length !== imageChunk.length) {
-            throw new Error(`Image generation failed for a chunk. Expected ${imageChunk.length} images, but got ${generatedChunk.length}.`);
-        }
-
-        allNewImages.push(...generatedChunk);
-    }
+    const allNewImages = await Promise.all(imageGenerationPromises);
     
     if (allNewImages.length !== resumeImagesBase64.length) {
-        throw new Error(`Final image count mismatch. Expected ${resumeImagesBase64.length} images, but AI generated ${allNewImages.length}.`);
+        throw new Error(`Final image count mismatch. Expected ${resumeImagesBase64.length} images, but only ${allNewImages.length} were generated successfully.`);
     }
 
     // Step 3: Assemble and return the final results.

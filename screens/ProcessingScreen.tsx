@@ -7,8 +7,8 @@ const messages = [
   "Drafting a new summary and experience points...",
   "Writing a compelling, tailored cover letter...",
   "Content draft complete! Now for the visual magic...",
-  "Rebuilding your resume design with the new text...",
-  "Ensuring every font, color, and pixel is perfect...",
+  "Recreating your resume page by page with the new content...",
+  "Ensuring every font, color, and pixel is a perfect match...",
   "Finalizing your personalized application assets...",
 ];
 
