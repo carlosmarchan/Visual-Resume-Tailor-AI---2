@@ -1,0 +1,5 @@
+{
+  "name": "Visual Resume Tailor AI",
+  "description": "An AI-powered application that tailors the content of a resume to a specific job description while preserving its original visual layout and design.",
+  "requestFramePermissions": []
+}
