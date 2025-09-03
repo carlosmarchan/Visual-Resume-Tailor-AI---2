@@ -1,4 +1,3 @@
-
 export enum AppState {
   HOME = 'HOME',
   INPUT = 'INPUT',
@@ -12,11 +11,19 @@ export interface JobDetails {
   jobDescription: string;
 }
 
+export interface ChangeDetail {
+  section: string;
+  summary: string;
+  originalText: string;
+  newText: string;
+}
+
 export interface GeneratedAssets {
   tailoredResumeImages: string[];
   coverLetter: string;
   originalResumeText: string;
+  rewrittenResumeText: string;
   summary: string;
-  changes: string[];
+  changes: ChangeDetail[];
   atsKeywords: string[];
 }

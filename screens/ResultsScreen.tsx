@@ -1,6 +1,5 @@
-
 import React, { useState, useCallback } from 'react';
-import { GeneratedAssets, JobDetails } from '../types';
+import { GeneratedAssets, JobDetails, ChangeDetail } from '../types';
 import Button from '../components/Button';
 import { usePdfGenerator } from '../hooks/usePdfGenerator';
 
@@ -10,19 +9,29 @@ interface ResultsScreenProps {
   originalResumeImages: string[];
 }
 
-type ActiveTab = 'resume' | 'coverLetter' | 'changes' | 'originalText';
+type ActiveTab = 'resume' | 'coverLetter' | 'changes' | 'originalText' | 'newText';
 
 const ResultsScreen: React.FC<ResultsScreenProps> = ({ assets, jobDetails, originalResumeImages }) => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('resume');
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<'original' | 'new' | false>(false);
   const { downloadImagesAsPdf, downloadTextAsPdf } = usePdfGenerator();
+  
+  // Initialize the state of applied changes from the assets
+  const [appliedChanges, setAppliedChanges] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(assets.changes.map((c, i) => [`change-${i}`, true]))
+  );
 
-  const handleCopyToClipboard = useCallback(() => {
-    navigator.clipboard.writeText(assets.originalResumeText).then(() => {
-      setCopied(true);
+  const handleToggleChange = (changeId: string) => {
+    setAppliedChanges(prev => ({ ...prev, [changeId]: !prev[changeId] }));
+  };
+
+
+  const handleCopyToClipboard = useCallback((textToCopy: string, type: 'original' | 'new') => {
+    navigator.clipboard.writeText(textToCopy).then(() => {
+      setCopied(type);
       setTimeout(() => setCopied(false), 2000);
     });
-  }, [assets.originalResumeText]);
+  }, []);
 
   const handleDownloadResume = () => {
     const fileName = `${jobDetails?.companyName}_${jobDetails?.jobTitle}_Resume.pdf`.replace(/\s/g, '_');
@@ -45,6 +54,31 @@ const ResultsScreen: React.FC<ResultsScreenProps> = ({ assets, jobDetails, origi
     </button>
   );
 
+  const ChangeCard: React.FC<{change: ChangeDetail, id: string, isApplied: boolean, onToggle: () => void}> = ({ change, id, isApplied, onToggle }) => (
+    <div className="bg-gray-900 p-4 rounded-md border border-gray-700 flex items-start space-x-4">
+      <div className="flex-grow">
+        <p className="font-semibold text-indigo-300">{change.section}</p>
+        <p className="text-gray-300 text-sm">{change.summary}</p>
+      </div>
+      <div className="flex items-center space-x-3 pl-4 flex-shrink-0">
+         <span className={`text-xs font-medium ${isApplied ? 'text-gray-300' : 'text-gray-500'}`}>Apply Change</span>
+         <button
+            type="button"
+            onClick={onToggle}
+            className={`relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-500 ${isApplied ? 'bg-indigo-600' : 'bg-gray-600'}`}
+            role="switch"
+            aria-checked={isApplied}
+        >
+            <span
+                aria-hidden="true"
+                className={`inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200 ${isApplied ? 'translate-x-5' : 'translate-x-0'}`}
+            ></span>
+        </button>
+      </div>
+    </div>
+  );
+
+
   return (
     <div className="max-w-7xl mx-auto">
         <div className="bg-gray-800/50 p-6 sm:p-8 rounded-lg shadow-2xl border border-gray-700">
@@ -58,8 +92,9 @@ const ResultsScreen: React.FC<ResultsScreenProps> = ({ assets, jobDetails, origi
             <div className="flex flex-wrap gap-2 border-b border-gray-700 mb-6 pb-4">
                 <TabButton tabId="resume">Tailored Resume</TabButton>
                 <TabButton tabId="coverLetter">Cover Letter</TabButton>
-                <TabButton tabId="changes">Changes &amp; Keywords</TabButton>
+                <TabButton tabId="changes">Review &amp; Refine</TabButton>
                 <TabButton tabId="originalText">Original Resume Text</TabButton>
+                <TabButton tabId="newText">New Resume Text</TabButton>
             </div>
             
             <div className="min-h-[60vh]">
@@ -103,7 +138,7 @@ const ResultsScreen: React.FC<ResultsScreenProps> = ({ assets, jobDetails, origi
                     </div>
                 )}
                 {activeTab === 'changes' && (
-                    <div className="space-y-8 text-gray-200">
+                     <div className="space-y-8 text-gray-200 max-w-4xl mx-auto">
                         <div>
                             <h3 className="text-xl font-bold text-white mb-3">Executive Summary</h3>
                             <p className="bg-gray-900 p-4 rounded-md border border-gray-600 whitespace-pre-wrap font-sans">
@@ -112,12 +147,25 @@ const ResultsScreen: React.FC<ResultsScreenProps> = ({ assets, jobDetails, origi
                         </div>
 
                         <div>
-                            <h3 className="text-xl font-bold text-white mb-3">Changes Made</h3>
-                            <ul className="list-disc list-inside space-y-2 bg-gray-900 p-4 rounded-md border border-gray-600">
-                                {assets.changes.map((change, index) => (
-                                    <li key={index}>{change}</li>
-                                ))}
-                            </ul>
+                            <h3 className="text-xl font-bold text-white mb-3">Refine Changes</h3>
+                            <div className="space-y-3">
+                                {assets.changes.map((change, index) => {
+                                    const id = `change-${index}`;
+                                    return (
+                                        <ChangeCard 
+                                            key={id} 
+                                            id={id} 
+                                            change={change} 
+                                            isApplied={appliedChanges[id]} 
+                                            onToggle={() => handleToggleChange(id)} 
+                                        />
+                                    );
+                                })}
+                            </div>
+                             <div className="mt-6 text-center text-sm text-gray-400 p-4 bg-gray-900/50 rounded-md border border-dashed border-gray-700">
+                                <p className="font-semibold text-gray-300 mb-1">Next Up: Real-Time Updates!</p>
+                                <p>Soon, toggling these changes will instantly update the tailored resume preview.</p>
+                            </div>
                         </div>
 
                         <div>
@@ -135,11 +183,22 @@ const ResultsScreen: React.FC<ResultsScreenProps> = ({ assets, jobDetails, origi
                 {activeTab === 'originalText' && (
                     <div>
                         <div className="flex justify-end mb-4">
-                            <Button onClick={handleCopyToClipboard}>{copied ? 'Copied!' : 'Copy Text'}</Button>
+                            <Button onClick={() => handleCopyToClipboard(assets.originalResumeText, 'original')}>{copied === 'original' ? 'Copied!' : 'Copy Text'}</Button>
                         </div>
                         <div className="bg-gray-900 p-6 rounded-md border border-gray-600">
                             <p className="text-sm text-gray-400 mb-4">This is the text transcribed from your original resume, useful for pasting into online application forms.</p>
                             <pre className="whitespace-pre-wrap font-sans text-gray-200">{assets.originalResumeText}</pre>
+                        </div>
+                    </div>
+                )}
+                {activeTab === 'newText' && (
+                    <div>
+                        <div className="flex justify-end mb-4">
+                            <Button onClick={() => handleCopyToClipboard(assets.rewrittenResumeText, 'new')}>{copied === 'new' ? 'Copied!' : 'Copy Text'}</Button>
+                        </div>
+                        <div className="bg-gray-900 p-6 rounded-md border border-gray-600">
+                            <p className="text-sm text-gray-400 mb-4">This is the new tailored text generated for your resume, useful for pasting into online application forms.</p>
+                            <pre className="whitespace-pre-wrap font-sans text-gray-200">{assets.rewrittenResumeText}</pre>
                         </div>
                     </div>
                 )}

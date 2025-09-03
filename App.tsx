@@ -45,6 +45,7 @@ const App: React.FC = () => {
         changes: tailoredResult.changes,
         atsKeywords: tailoredResult.atsKeywords,
         originalResumeText: originalTextResult,
+        rewrittenResumeText: tailoredResult.rewrittenResumeText,
       });
       setAppState(AppState.RESULTS);
     } catch (err) {

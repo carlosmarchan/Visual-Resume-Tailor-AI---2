@@ -1,5 +1,5 @@
 import { GoogleGenAI, Modality, Part, Type } from "@google/genai";
-import { GeneratedAssets, JobDetails } from "../types";
+import { GeneratedAssets, JobDetails, ChangeDetail } from "../types";
 
 const API_KEY = process.env.API_KEY;
 
@@ -37,7 +37,7 @@ type TextAssetsResponse = {
   rewrittenResumeText: string[];
   coverLetter: string;
   executiveSummary: string;
-  changesMade: string[];
+  changesMade: ChangeDetail[];
   atsKeywords: string[];
 }
 
@@ -49,17 +49,18 @@ const generateTextAssets = async (
   jobDetails: JobDetails
 ): Promise<TextAssetsResponse> => {
   const prompt = `
-    You are a professional resume tailoring assistant. Your task is to analyze a user's resume (provided as images) and a job description (text) to produce a JSON object containing rewritten content.
+    You are a world-class resume tailoring assistant. Your task is to analyze a user's resume (provided as images) and a job description to produce a highly structured JSON object.
 
     **Instructions:**
-    1. **Analyze:** Deeply understand the original resume's content and the key requirements of the job description for "${jobDetails.jobTitle}" at "${jobDetails.companyName}".
-    2. **Generate Content:** Create the following text assets based on your analysis:
-        - A fully rewritten resume text. This text MUST be broken down into an array of strings, where each string in the array corresponds to the content for a single page. The number of strings MUST exactly match the number of resume images provided (${resumeImagesBase64.length}).
-        - A professional cover letter.
-        - An executive summary explaining the tailoring strategy.
-        - A list of specific changes made.
-        - A list of ATS keywords incorporated.
-    3. **Format Output:** You MUST return a single, valid JSON object enclosed in a \`\`\`json markdown block. The JSON object must have these exact keys: "rewrittenResumeText", "coverLetter", "executiveSummary", "changesMade", "atsKeywords". The "rewrittenResumeText" key must be an array of strings.
+    1.  **Analyze:** Deeply understand the original resume's content and the key requirements of the job description for "${jobDetails.jobTitle}" at "${jobDetails.companyName}".
+    2.  **Generate Rewritten Resume Text:** Rewrite the entire resume content to be perfectly tailored for the job. This text MUST be broken down into an array of strings, where each string corresponds to the content for a single page. The number of strings MUST exactly match the number of resume images provided (${resumeImagesBase64.length}).
+    3.  **Generate Supporting Content:** Create a professional cover letter, a concise executive summary of the tailoring strategy, and a list of relevant ATS keywords.
+    4.  **Detail All Changes:** For the 'changesMade' field, create an array of objects. Each object must represent a single, specific change you made. It MUST have the following keys:
+        *   \`section\`: The specific section of the resume that was changed (e.g., "Summary", "Experience: Lead Architect", "Skills").
+        *   \`summary\`: A brief, one-sentence summary of the change you made.
+        *   \`originalText\`: The exact text from the original resume that was replaced or modified.
+        *   \`newText\`: The new text you wrote to replace the original.
+    5.  **Format Output:** You MUST return a single, valid JSON object enclosed in a \`\`\`json markdown block. Adhere strictly to the specified format.
 
     **CRITICAL:** Your output must ONLY be the JSON object in the markdown block. Do not include any other text or explanation.
 
@@ -67,13 +68,20 @@ const generateTextAssets = async (
     \`\`\`json
     {
       "rewrittenResumeText": [
-        "Page 1: John Doe\\n... (full text for the first page) ...",
-        "Page 2: ... (full text for the second page) ..."
+        "Page 1: John Doe...",
+        "Page 2: Professional Experience..."
       ],
-      "executiveSummary": "The resume was updated to highlight project management skills...",
-      "changesMade": ["Replaced 'Led team' with 'Led a team of 5 engineers...'."],
+      "executiveSummary": "The resume was strategically updated to highlight project management skills...",
+      "changesMade": [
+        {
+          "section": "Summary",
+          "summary": "Rewrote the summary to align with the Product Manager role's focus on B2B SaaS.",
+          "originalText": "Experienced professional with a background in software.",
+          "newText": "Visionary Product Manager with 5+ years of experience in the B2B SaaS space..."
+        }
+      ],
       "atsKeywords": ["Product Roadmap", "Agile", "Data Analysis"],
-      "coverLetter": "Dear Hiring Manager,\\n\\nI am writing to express my keen interest..."
+      "coverLetter": "Dear Hiring Manager,..."
     }
     \`\`\`
 
@@ -86,7 +94,7 @@ const generateTextAssets = async (
   const textPart = { text: prompt };
 
   const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash', // Using text-focused model for this step
+      model: 'gemini-2.5-flash',
       contents: { parts: [...imageParts, textPart] }
   });
 
@@ -126,16 +134,16 @@ const generateImageAsset = async (
 ): Promise<string> => {
     console.log(`Generating image for page ${pageNumber}...`);
     const prompt = `
-        You are a visual design replication assistant. Your task is to create a new image based on a template, but with updated text.
+        You are a visual design replication expert. Your task is to perfectly recreate a new image from a template, but with updated English text.
 
         **Instructions:**
-        1. **Use as Template:** The provided image is a visual template. Pay close attention to its layout, fonts, colors, spacing, and all other design elements.
-        2. **Replace Text:** Replace all the text in the input image with the new text provided below.
-        3. **Maintain Fidelity:** The new image must be a perfect visual replica of the original template. The only difference should be the text content. The output must be a single image.
+        1. **Analyze Template:** The provided image is your visual template. Analyze its layout, fonts, colors, spacing, and all design elements.
+        2. **Replace Text:** Replace the original text in the image with the new English text provided below. You must ensure the new text is rendered correctly and legibly in English.
+        3. **Maintain Visual Fidelity:** The new image MUST be a perfect visual replica of the original. The only difference should be the text content. The output must be a single image. Do not add any new visual elements or change the design.
 
-        **CRITICAL:** Do not alter the design in any way. Your sole focus is replacing the text while maintaining 100% visual fidelity.
+        **CRITICAL:** The output text MUST be in English and be the exact text provided below. Do not use placeholder or garbled text. The new image must be in English.
 
-        **New Text to Insert:**
+        **New English Text to Insert:**
         ---
         ${newText}
         ---
@@ -197,6 +205,7 @@ export const generateTailoredAssets = async (
         summary: textAssets.executiveSummary,
         changes: textAssets.changesMade,
         atsKeywords: textAssets.atsKeywords,
+        rewrittenResumeText: textAssets.rewrittenResumeText.join('\n\n---\nPage Break\n---\n\n'),
     };
 };
 
