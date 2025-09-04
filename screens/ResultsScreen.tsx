@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback } from 'react';
 import { GeneratedAssets, JobDetails, ChangeDetail } from '../types';
 import Button from '../components/Button';
@@ -15,16 +16,6 @@ const ResultsScreen: React.FC<ResultsScreenProps> = ({ assets, jobDetails, origi
   const [activeTab, setActiveTab] = useState<ActiveTab>('resume');
   const [copied, setCopied] = useState<'original' | 'new' | false>(false);
   const { downloadImagesAsPdf, downloadTextAsPdf } = usePdfGenerator();
-  
-  // Initialize the state of applied changes from the assets
-  const [appliedChanges, setAppliedChanges] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(assets.changes.map((c, i) => [`change-${i}`, true]))
-  );
-
-  const handleToggleChange = (changeId: string) => {
-    setAppliedChanges(prev => ({ ...prev, [changeId]: !prev[changeId] }));
-  };
-
 
   const handleCopyToClipboard = useCallback((textToCopy: string, type: 'original' | 'new') => {
     navigator.clipboard.writeText(textToCopy).then(() => {
@@ -54,29 +45,45 @@ const ResultsScreen: React.FC<ResultsScreenProps> = ({ assets, jobDetails, origi
     </button>
   );
 
-  const ChangeCard: React.FC<{change: ChangeDetail, id: string, isApplied: boolean, onToggle: () => void}> = ({ change, id, isApplied, onToggle }) => (
-    <div className="bg-gray-900 p-4 rounded-md border border-gray-700 flex items-start space-x-4">
-      <div className="flex-grow">
-        <p className="font-semibold text-indigo-300">{change.section}</p>
-        <p className="text-gray-300 text-sm">{change.summary}</p>
+  const AppliedChangeCard: React.FC<{change: ChangeDetail}> = ({ change }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+  
+    return (
+      <div className="bg-gray-900/70 p-4 rounded-lg border border-gray-700 transition-all duration-300">
+        <div className="flex items-start space-x-4 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+          <div className="flex-grow">
+            <p className="font-semibold text-indigo-300">{change.section}</p>
+            <p className="text-gray-300 text-sm">{change.summary}</p>
+          </div>
+           <div className="flex items-center space-x-2 pl-4 flex-shrink-0 text-green-400">
+             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+            <span className="text-xs font-medium">Applied</span>
+          </div>
+        </div>
+        
+        {isExpanded && (
+          <div className="mt-4 pt-4 border-t border-gray-700/50 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div>
+                  <h4 className="font-bold text-gray-400 mb-2">Original</h4>
+                  <div className="bg-gray-800 p-3 rounded-md border border-gray-600 h-full">
+                      <pre className="whitespace-pre-wrap font-sans text-gray-300">
+                          {change.originalText || <span className="text-gray-500 italic">No original text (new section).</span>}
+                      </pre>
+                  </div>
+              </div>
+              <div>
+                  <h4 className="font-bold text-green-400 mb-2">Tailored</h4>
+                   <div className="bg-gray-800 p-3 rounded-md border border-green-700/50 h-full">
+                      <pre className="whitespace-pre-wrap font-sans text-green-200">{change.newText}</pre>
+                  </div>
+              </div>
+          </div>
+        )}
       </div>
-      <div className="flex items-center space-x-3 pl-4 flex-shrink-0">
-         <span className={`text-xs font-medium ${isApplied ? 'text-gray-300' : 'text-gray-500'}`}>Apply Change</span>
-         <button
-            type="button"
-            onClick={onToggle}
-            className={`relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-500 ${isApplied ? 'bg-indigo-600' : 'bg-gray-600'}`}
-            role="switch"
-            aria-checked={isApplied}
-        >
-            <span
-                aria-hidden="true"
-                className={`inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200 ${isApplied ? 'translate-x-5' : 'translate-x-0'}`}
-            ></span>
-        </button>
-      </div>
-    </div>
-  );
+    );
+  };
 
 
   return (
@@ -92,7 +99,7 @@ const ResultsScreen: React.FC<ResultsScreenProps> = ({ assets, jobDetails, origi
             <div className="flex flex-wrap gap-2 border-b border-gray-700 mb-6 pb-4">
                 <TabButton tabId="resume">Tailored Resume</TabButton>
                 <TabButton tabId="coverLetter">Cover Letter</TabButton>
-                <TabButton tabId="changes">Review &amp; Refine</TabButton>
+                <TabButton tabId="changes">Applied Changes</TabButton>
                 <TabButton tabId="originalText">Original Resume Text</TabButton>
                 <TabButton tabId="newText">New Resume Text</TabButton>
             </div>
@@ -147,24 +154,20 @@ const ResultsScreen: React.FC<ResultsScreenProps> = ({ assets, jobDetails, origi
                         </div>
 
                         <div>
-                            <h3 className="text-xl font-bold text-white mb-3">Refine Changes</h3>
+                            <h3 className="text-xl font-bold text-white mb-3">Applied Changes</h3>
                             <div className="space-y-3">
-                                {assets.changes.map((change, index) => {
-                                    const id = `change-${index}`;
-                                    return (
-                                        <ChangeCard 
-                                            key={id} 
-                                            id={id} 
+                                {assets.changes.length > 0 ? (
+                                    assets.changes.map((change, index) => (
+                                        <AppliedChangeCard 
+                                            key={`applied-${index}`} 
                                             change={change} 
-                                            isApplied={appliedChanges[id]} 
-                                            onToggle={() => handleToggleChange(id)} 
                                         />
-                                    );
-                                })}
-                            </div>
-                             <div className="mt-6 text-center text-sm text-gray-400 p-4 bg-gray-900/50 rounded-md border border-dashed border-gray-700">
-                                <p className="font-semibold text-gray-300 mb-1">Next Up: Real-Time Updates!</p>
-                                <p>Soon, toggling these changes will instantly update the tailored resume preview.</p>
+                                    ))
+                                ) : (
+                                    <div className="text-center text-gray-400 p-4 bg-gray-900/50 rounded-md border border-dashed border-gray-700">
+                                        <p>No changes were applied to the original resume.</p>
+                                    </div>
+                                )}
                             </div>
                         </div>
 

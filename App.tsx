@@ -1,17 +1,20 @@
 
 import React, { useState, useCallback } from 'react';
-import { AppState, JobDetails, GeneratedAssets } from './types';
+import { AppState, JobDetails, GeneratedAssets, TextGenerationResult, ChangeDetail } from './types';
 import HomeScreen from './screens/HomeScreen';
 import InputScreen from './screens/InputScreen';
 import ProcessingScreen from './screens/ProcessingScreen';
 import ResultsScreen from './screens/ResultsScreen';
+import RefinementScreen from './screens/RefinementScreen';
 import Header from './components/Header';
-import { generateTailoredAssets, extractOriginalText } from './services/geminiService';
+import { generateTextAssets, generateFinalAssets, extractOriginalText } from './services/geminiService';
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.HOME);
   const [jobDetails, setJobDetails] = useState<JobDetails | null>(null);
   const [resumeImages, setResumeImages] = useState<string[]>([]);
+  const [textAssets, setTextAssets] = useState<TextGenerationResult | null>(null);
+  const [originalResumeText, setOriginalResumeText] = useState<string>('');
   const [generatedAssets, setGeneratedAssets] = useState<GeneratedAssets | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,36 +22,68 @@ const App: React.FC = () => {
     setAppState(AppState.INPUT);
     setJobDetails(null);
     setResumeImages([]);
+    setTextAssets(null);
     setGeneratedAssets(null);
+    setOriginalResumeText('');
     setError(null);
   };
 
-  const handleGenerate = useCallback(async (
+  const handleInitialGenerate = useCallback(async (
     currentJobDetails: JobDetails,
     currentResumeImages: string[]
   ) => {
     setJobDetails(currentJobDetails);
     setResumeImages(currentResumeImages);
-    setAppState(AppState.PROCESSING);
+    setAppState(AppState.PROCESSING_TEXT);
     setError(null);
 
     try {
-      const [tailoredResult, originalTextResult] = await Promise.all([
-        generateTailoredAssets(currentResumeImages, currentJobDetails),
-        extractOriginalText(currentResumeImages)
+      // First, generate only the text assets and extract original text
+      const [textResult, originalTextResult] = await Promise.all([
+          generateTextAssets(currentResumeImages, currentJobDetails),
+          extractOriginalText(currentResumeImages)
       ]);
-
-      setGeneratedAssets({
-        tailoredResumeImages: tailoredResult.tailoredResumeImages,
-        coverLetter: tailoredResult.coverLetter,
-        summary: tailoredResult.summary,
-        changes: tailoredResult.changes,
-        atsKeywords: tailoredResult.atsKeywords,
-        originalResumeText: originalTextResult,
-        rewrittenResumeText: tailoredResult.rewrittenResumeText,
-      });
-      setAppState(AppState.RESULTS);
+      
+      setTextAssets(textResult);
+      setOriginalResumeText(originalTextResult);
+      setAppState(AppState.REFINEMENT);
     } catch (err) {
+      handleError(err);
+      setAppState(AppState.INPUT);
+    }
+  }, []);
+
+  const handleRefinement = useCallback(async (appliedChanges: ChangeDetail[]) => {
+    if (!resumeImages.length || !textAssets || !originalResumeText) {
+        setError("Missing data to proceed with generation. Please start over.");
+        setAppState(AppState.INPUT);
+        return;
+    }
+    
+    setAppState(AppState.PROCESSING_IMAGES);
+    setError(null);
+    
+    try {
+        const { finalImages, finalTexts } = await generateFinalAssets(resumeImages, originalResumeText, textAssets.changes, appliedChanges);
+
+        // Combine all assets for the final results screen
+        setGeneratedAssets({
+            tailoredResumeImages: finalImages,
+            coverLetter: textAssets.coverLetter,
+            summary: textAssets.summary,
+            changes: appliedChanges, // only show the changes that were actually applied
+            atsKeywords: textAssets.atsKeywords,
+            originalResumeText: originalResumeText,
+            rewrittenResumeText: finalTexts.join('\n\n---\nPage Break\n---\n\n'),
+        });
+        setAppState(AppState.RESULTS);
+    } catch (err) {
+        handleError(err);
+        setAppState(AppState.REFINEMENT); // Go back to refinement screen on image generation failure
+    }
+  }, [resumeImages, textAssets, originalResumeText]);
+  
+  const handleError = (err: unknown) => {
       console.error(err);
       let errorMessage = 'An unknown error occurred during generation.';
       if (err instanceof Error) {
@@ -63,20 +98,22 @@ const App: React.FC = () => {
           }
       }
       setError(errorMessage);
-      setAppState(AppState.INPUT);
-    }
-  }, []);
+  }
 
   const renderContent = () => {
     switch (appState) {
       case AppState.HOME:
         return <HomeScreen onStart={handleStart} />;
       case AppState.INPUT:
-        return <InputScreen onGenerate={handleGenerate} initialData={{jobDetails, resumeImages, error}} />;
-      case AppState.PROCESSING:
-        return <ProcessingScreen />;
+        return <InputScreen onGenerate={handleInitialGenerate} initialData={{jobDetails, resumeImages, error}} />;
+      case AppState.PROCESSING_TEXT:
+        return <ProcessingScreen phase="text" />;
+      case AppState.REFINEMENT:
+        return textAssets ? <RefinementScreen textAssets={textAssets} onConfirm={handleRefinement} /> : <ProcessingScreen phase="text" />;
+      case AppState.PROCESSING_IMAGES:
+        return <ProcessingScreen phase="image" />;
       case AppState.RESULTS:
-        return generatedAssets ? <ResultsScreen assets={generatedAssets} jobDetails={jobDetails} originalResumeImages={resumeImages} /> : <ProcessingScreen />;
+        return generatedAssets ? <ResultsScreen assets={generatedAssets} jobDetails={jobDetails} originalResumeImages={resumeImages} /> : <ProcessingScreen phase="image" />;
       default:
         return <HomeScreen onStart={handleStart} />;
     }

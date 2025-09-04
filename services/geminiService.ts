@@ -1,5 +1,5 @@
 import { GoogleGenAI, Modality, Part, Type } from "@google/genai";
-import { GeneratedAssets, JobDetails, ChangeDetail } from "../types";
+import { JobDetails, ChangeDetail, TextGenerationResult, FinalAssetsResult } from "../types";
 
 const API_KEY = process.env.API_KEY;
 
@@ -32,63 +32,54 @@ const base64ToPart = (base64: string): Part => {
     };
 };
 
-// Type for the response from the first, text-focused AI call
-type TextAssetsResponse = {
-  rewrittenResumeText: string[];
-  coverLetter: string;
-  executiveSummary: string;
-  changesMade: ChangeDetail[];
-  atsKeywords: string[];
-}
+const parseJsonResponse = <T>(text: string, context: string): T => {
+    try {
+        let jsonString = '';
+        const jsonBlockMatch = text.match(/```json\s*([\s\S]*?)\s*```/);
+        
+        if (jsonBlockMatch && jsonBlockMatch[1]) {
+            jsonString = jsonBlockMatch[1];
+        } else {
+            const startIndex = text.indexOf('{');
+            const endIndex = text.lastIndexOf('}');
+            if (startIndex !== -1 && endIndex > startIndex) {
+                jsonString = text.substring(startIndex, endIndex + 1);
+            }
+        }
+
+        if (jsonString) {
+            return JSON.parse(jsonString);
+        } else {
+            throw new Error(`No parsable JSON object found in the AI response for ${context}.`);
+        }
+    } catch (e) {
+        console.error(`Failed to parse JSON for ${context}. Raw text:`, text, "Error:", e);
+        throw new Error(`AI returned an invalid text format during ${context}.`);
+    }
+};
 
 /**
- * STEP 1: Generates all text-based assets by analyzing the resume and job description.
+ * STEP 1: Generates all text-based suggestions by analyzing the resume and job description.
  */
-const generateTextAssets = async (
+export const generateTextAssets = async (
   resumeImagesBase64: string[],
   jobDetails: JobDetails
-): Promise<TextAssetsResponse> => {
+): Promise<TextGenerationResult> => {
   const prompt = `
-    You are a world-class resume tailoring assistant. Your task is to analyze a user's resume (provided as images) and a job description to produce a highly structured JSON object.
+    You are a world-class resume tailoring assistant. Your task is to analyze a user's resume (provided as images) and a job description to produce a highly structured JSON object containing proposed changes.
 
     **Instructions:**
     1.  **Analyze:** Deeply understand the original resume's content and the key requirements of the job description for "${jobDetails.jobTitle}" at "${jobDetails.companyName}".
-    2.  **Generate Rewritten Resume Text:** Rewrite the entire resume content to be perfectly tailored for the job. This text MUST be broken down into an array of strings, where each string corresponds to the content for a single page. The number of strings MUST exactly match the number of resume images provided (${resumeImagesBase64.length}).
-    3.  **Generate Supporting Content:** Create a professional cover letter, a concise executive summary of the tailoring strategy, and a list of relevant ATS keywords.
-    4.  **Detail All Changes:** For the 'changesMade' field, create an array of objects. Each object must represent a single, specific change you made. It MUST have the following keys:
+    2.  **Generate Supporting Content:** Create a professional cover letter, a concise executive summary of the tailoring strategy, and a list of relevant ATS keywords.
+    3.  **Detail All Changes:** For the 'changesMade' field, create an array of objects. Each object must represent a single, specific change you made. It MUST have the following keys:
         *   \`section\`: The specific section of the resume that was changed (e.g., "Summary", "Experience: Lead Architect", "Skills").
         *   \`summary\`: A brief, one-sentence summary of the change you made.
         *   \`originalText\`: The exact text from the original resume that was replaced or modified.
         *   \`newText\`: The new text you wrote to replace the original.
-    5.  **Format Output:** You MUST return a single, valid JSON object enclosed in a \`\`\`json markdown block. Adhere strictly to the specified format.
+        *   \`pageIndex\`: The 0-indexed page number of the resume image where this change should be applied.
+    4.  **Format Output:** You MUST return a single, valid JSON object enclosed in a \`\`\`json markdown block. Adhere strictly to the specified format.
 
     **CRITICAL:** Your output must ONLY be the JSON object in the markdown block. Do not include any other text or explanation.
-
-    **Example JSON format:**
-    \`\`\`json
-    {
-      "rewrittenResumeText": [
-        "Page 1: John Doe...",
-        "Page 2: Professional Experience..."
-      ],
-      "executiveSummary": "The resume was strategically updated to highlight project management skills...",
-      "changesMade": [
-        {
-          "section": "Summary",
-          "summary": "Rewrote the summary to align with the Product Manager role's focus on B2B SaaS.",
-          "originalText": "Experienced professional with a background in software.",
-          "newText": "Visionary Product Manager with 5+ years of experience in the B2B SaaS space..."
-        }
-      ],
-      "atsKeywords": ["Product Roadmap", "Agile", "Data Analysis"],
-      "coverLetter": "Dear Hiring Manager,..."
-    }
-    \`\`\`
-
-    **Job Description:**
-    ---
-    ${jobDetails.jobDescription}
-    ---
   `;
   const imageParts = resumeImagesBase64.map(base64ToPart);
   const textPart = { text: prompt };
@@ -98,34 +89,71 @@ const generateTextAssets = async (
       contents: { parts: [...imageParts, textPart] }
   });
 
-  try {
-      let jsonString = '';
-      const combinedText = response.text;
-      const jsonBlockMatch = combinedText.match(/```json\s*([\s\S]*?)\s*```/);
-      
-      if (jsonBlockMatch && jsonBlockMatch[1]) {
-          jsonString = jsonBlockMatch[1];
-      } else {
-          const startIndex = combinedText.indexOf('{');
-          const endIndex = combinedText.lastIndexOf('}');
-          if (startIndex !== -1 && endIndex > startIndex) {
-              jsonString = combinedText.substring(startIndex, endIndex + 1);
-          }
-      }
+  const parsedResponse = parseJsonResponse<{
+      coverLetter: string;
+      executiveSummary: string;
+      changesMade: ChangeDetail[];
+      atsKeywords: string[];
+  }>(response.text, "text asset generation");
 
-      if (jsonString) {
-          return JSON.parse(jsonString);
-      } else {
-          throw new Error("No parsable JSON object found in the AI response for text generation.");
-      }
-  } catch (e) {
-      console.error("Failed to parse JSON for text assets. Raw text:", response.text, "Error:", e);
-      throw new Error("AI returned an invalid text format during content generation.");
-  }
+  return {
+      coverLetter: parsedResponse.coverLetter,
+      summary: parsedResponse.executiveSummary,
+      changes: parsedResponse.changesMade,
+      atsKeywords: parsedResponse.atsKeywords
+  };
 };
 
 /**
- * STEP 2: Generates a new resume image using an original image as a template and new text.
+ * STEP 2a: Generates the final, cohesive resume text based on user-approved changes.
+ */
+const generateFinalResumeText = async (
+  originalResumeText: string,
+  allProposedChanges: ChangeDetail[],
+  appliedChanges: ChangeDetail[],
+  numPages: number,
+): Promise<string[]> => {
+    const prompt = `
+        You are a resume finalizer. You will be given the full text of an original resume, a list of all possible AI-suggested changes, and a list of the specific changes a user has approved.
+        Your task is to generate the complete, final text for the resume, applying ONLY the user-approved changes.
+
+        **Instructions:**
+        1.  **Understand Context:** Use the original resume text as the base.
+        2.  **Apply Approved Changes:** Integrate the changes from the "User-Approved Changes" list into the base text.
+        3.  **Ignore Rejected Changes:** Do not incorporate any changes that are not in the approved list.
+        4.  **Ensure Cohesion:** The final text must be professional, well-written, and cohesive, even with some changes being omitted.
+        5.  **Format Output:** Return a single JSON object with a key "rewrittenResumeText". The value should be an array of strings, where each string is the full content for one page. The number of strings in the array MUST be exactly ${numPages}.
+
+        **Original Resume Text:**
+        ---
+        ${originalResumeText}
+        ---
+
+        **All Possible AI Changes (for context):**
+        ---
+        ${JSON.stringify(allProposedChanges, null, 2)}
+        ---
+
+        **User-Approved Changes (Apply ONLY these):**
+        ---
+        ${JSON.stringify(appliedChanges, null, 2)}
+        ---
+    `;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: { parts: [{ text: prompt }] }
+    });
+    
+    const parsed = parseJsonResponse<{ rewrittenResumeText: string[] }>(response.text, "final text synthesis");
+    if (!parsed.rewrittenResumeText || parsed.rewrittenResumeText.length !== numPages) {
+         throw new Error(`AI final text synthesis mismatch: Expected text for ${numPages} pages, but received text for ${parsed.rewrittenResumeText?.length || 0} pages.`);
+    }
+    return parsed.rewrittenResumeText;
+};
+
+/**
+ * STEP 2b: Generates a new resume image using an original image as a template and new text.
  */
 const generateImageAsset = async (
   resumeImageBase64: string,
@@ -138,10 +166,10 @@ const generateImageAsset = async (
 
         **Instructions:**
         1. **Analyze Template:** The provided image is your visual template. Analyze its layout, fonts, colors, spacing, and all design elements.
-        2. **Replace Text:** Replace the original text in the image with the new English text provided below. You must ensure the new text is rendered correctly and legibly in English.
+        2. **Replace Text:** Conceptually remove all existing text from the template. Then, place the "New English Text to Insert" provided below into the appropriate sections, ensuring it is rendered correctly and legibly.
         3. **Maintain Visual Fidelity:** The new image MUST be a perfect visual replica of the original. The only difference should be the text content. The output must be a single image. Do not add any new visual elements or change the design.
 
-        **CRITICAL:** The output text MUST be in English and be the exact text provided below. Do not use placeholder or garbled text. The new image must be in English.
+        **CRITICAL:** The output MUST contain only the provided "New English Text to Insert". Do not use any placeholder text, lorem ipsum, or garbled characters. All text on the final image must be legible English.
 
         **New English Text to Insert:**
         ---
@@ -155,7 +183,7 @@ const generateImageAsset = async (
         model: 'gemini-2.5-flash-image-preview',
         contents: { parts: [imagePart, textPart] },
         config: {
-            responseModalities: [Modality.IMAGE],
+            responseModalities: [Modality.IMAGE, Modality.TEXT],
         },
     });
     
@@ -171,42 +199,39 @@ const generateImageAsset = async (
 };
 
 /**
- * Orchestrator function that runs the two-step generation process.
+ * STEP 2 Orchestrator: Runs the final text synthesis and selective image generation.
  */
-export const generateTailoredAssets = async (
-  resumeImagesBase64: string[],
-  jobDetails: JobDetails
-): Promise<Omit<GeneratedAssets, 'originalResumeText'>> => {
-    // Step 1: Generate all text-based content first.
-    console.log("Step 1: Generating paginated text assets...");
-    const textAssets = await generateTextAssets(resumeImagesBase64, jobDetails);
+export const generateFinalAssets = async (
+  originalResumeImages: string[],
+  originalResumeText: string,
+  allProposedChanges: ChangeDetail[],
+  appliedChanges: ChangeDetail[],
+): Promise<FinalAssetsResult> => {
+    console.log("Step 2a: Synthesizing final resume text based on user selections...");
+    const finalResumeTextPerPage = await generateFinalResumeText(originalResumeText, allProposedChanges, appliedChanges, originalResumeImages.length);
 
-    if (!textAssets.rewrittenResumeText || textAssets.rewrittenResumeText.length !== resumeImagesBase64.length) {
-        throw new Error(`AI text generation mismatch: Expected text for ${resumeImagesBase64.length} pages, but received text for ${textAssets.rewrittenResumeText?.length || 0} pages.`);
-    }
-
-    // Step 2: Use the generated text to create the new resume images, processing each page individually in parallel.
-    console.log(`Step 2: Generating ${resumeImagesBase64.length} new visual resume pages in parallel...`);
+    const pagesToRegenerate = new Set<number>();
+    appliedChanges.forEach(change => pagesToRegenerate.add(change.pageIndex));
     
-    const imageGenerationPromises = resumeImagesBase64.map((image, index) => 
-        generateImageAsset(image, textAssets.rewrittenResumeText[index], index + 1)
-    );
+    console.log(`Step 2b: ${pagesToRegenerate.size} pages require visual regeneration.`);
 
-    const allNewImages = await Promise.all(imageGenerationPromises);
-    
-    if (allNewImages.length !== resumeImagesBase64.length) {
-        throw new Error(`Final image count mismatch. Expected ${resumeImagesBase64.length} images, but only ${allNewImages.length} were generated successfully.`);
+    const finalImagePromises = originalResumeImages.map((originalImage, index) => {
+        if (pagesToRegenerate.has(index)) {
+            // This page was changed, so regenerate it
+            return generateImageAsset(originalImage, finalResumeTextPerPage[index], index + 1);
+        } else {
+            // This page was not changed, return the original image
+            return Promise.resolve(originalImage);
+        }
+    });
+
+    const finalImages = await Promise.all(finalImagePromises);
+
+    if (finalImages.length !== originalResumeImages.length) {
+        throw new Error(`Final image count mismatch. Expected ${originalResumeImages.length} images, but only ${finalImages.length} were generated successfully.`);
     }
-
-    // Step 3: Assemble and return the final results.
-    return { 
-        tailoredResumeImages: allNewImages,
-        coverLetter: textAssets.coverLetter,
-        summary: textAssets.executiveSummary,
-        changes: textAssets.changesMade,
-        atsKeywords: textAssets.atsKeywords,
-        rewrittenResumeText: textAssets.rewrittenResumeText.join('\n\n---\nPage Break\n---\n\n'),
-    };
+    
+    return { finalImages, finalTexts: finalResumeTextPerPage };
 };
 
 export const extractOriginalText = async (resumeImagesBase64: string[]): Promise<string> => {
@@ -216,7 +241,7 @@ export const extractOriginalText = async (resumeImagesBase64: string[]): Promise
     const textPart = { text: prompt };
     
     const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image-preview',
+        model: 'gemini-2.5-flash',
         contents: { parts: [...imageParts, textPart] }
     });
     
