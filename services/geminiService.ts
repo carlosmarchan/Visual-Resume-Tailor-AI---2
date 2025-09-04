@@ -74,8 +74,8 @@ export const generateTextAssets = async (
     3.  **Detail All Changes:** For the 'changesMade' field, create an array of objects. Each object must represent a single, specific change you made. It MUST have the following keys:
         *   \`section\`: The specific section of the resume that was changed (e.g., "Summary", "Experience: Lead Architect", "Skills").
         *   \`summary\`: A brief, one-sentence summary of the change you made.
-        *   \`originalText\`: The exact, verbatim text from the original resume that was replaced or modified. It is CRITICAL that this is a perfect, character-for-character transcription of the text on the image, as the user will use this to review your changes.
-        *   \`newText\`: The new text you wrote to replace the original.
+        *   \`originalText\`: The exact, verbatim text from the original resume that was replaced or modified. If you are ADDING a new bullet point or section, this field MUST be an empty string (""). It is CRITICAL that for modifications, this is a perfect, character-for-character transcription of the text on the image.
+        *   \`newText\`: The new text you wrote to replace the original, or the new text to add.
         *   \`pageIndex\`: The 0-indexed page number of the resume image where this change should be applied.
     4.  **Format Output:** You MUST return a single, valid JSON object enclosed in a \`\`\`json markdown block. Adhere strictly to the specified format.
 
@@ -162,7 +162,31 @@ const applyAtomicChangeToImage = async (
 ): Promise<string> => {
     console.log(`Applying atomic change to page ${pageNumber}: ${change.summary}`);
 
-    const prompt = `
+    const isAddition = !change.originalText || change.originalText.trim() === '';
+
+    const prompt = isAddition 
+    ? `
+        You are a hyper-precise visual document editor. Your task is to ADD new text to the provided image within a specific section, ensuring it integrates seamlessly with the existing content and style.
+
+        **CRITICAL RULES:**
+        1.  **LOCATE SECTION:** Find the section named "${change.section}" on the image.
+        2.  **ADD TEXT:** Add the "New Text" provided below into this section. You must intelligently determine the best placement (e.g., as a new bullet point at the end of a list, or as a new paragraph).
+        3.  **PERFECT STYLE MATCH:** The new text you render MUST perfectly replicate the font, size, weight, color, leading, and alignment of the other text within the "${change.section}" section.
+        4.  **MINIMAL IMPACT & MICRO-REFLOW:** You must NOT change any other part of the image. You must subtly and intelligently reflow the surrounding text and elements *within the same section* to make space for the new content.
+        5.  **LEGIBILITY IS MANDATORY:** The generated text MUST be perfectly sharp, clear, and legible.
+        6.  **SINGLE IMAGE OUTPUT:** Your response must contain only the final, edited image.
+
+        **Section to Add To:**
+        ---
+        ${change.section}
+        ---
+
+        **New Text to Add:**
+        ---
+        ${change.newText}
+        ---
+    `
+    : `
         You are a hyper-precise visual document editor. Your task is to perform a single, atomic "find and replace" operation on the text of the provided image. You must be extremely careful to not alter any other part of the document.
 
         **CRITICAL RULES:**
@@ -193,6 +217,11 @@ const applyAtomicChangeToImage = async (
             responseModalities: [Modality.IMAGE, Modality.TEXT],
         },
     });
+
+    if (!response.candidates?.[0]?.content?.parts) {
+        console.error(`AI returned an invalid response structure for page ${pageNumber}. Raw response:`, JSON.stringify(response, null, 2));
+        throw new Error(`AI returned an invalid response structure for page ${pageNumber} for change: "${change.summary}"`);
+    }
     
     for (const part of response.candidates[0].content.parts) {
         if (part.inlineData) {
