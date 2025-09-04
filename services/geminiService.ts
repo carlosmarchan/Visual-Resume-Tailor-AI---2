@@ -74,7 +74,7 @@ export const generateTextAssets = async (
     3.  **Detail All Changes:** For the 'changesMade' field, create an array of objects. Each object must represent a single, specific change you made. It MUST have the following keys:
         *   \`section\`: The specific section of the resume that was changed (e.g., "Summary", "Experience: Lead Architect", "Skills").
         *   \`summary\`: A brief, one-sentence summary of the change you made.
-        *   \`originalText\`: The exact text from the original resume that was replaced or modified.
+        *   \`originalText\`: The exact, verbatim text from the original resume that was replaced or modified. It is CRITICAL that this is a perfect, character-for-character transcription of the text on the image, as the user will use this to review your changes.
         *   \`newText\`: The new text you wrote to replace the original.
         *   \`pageIndex\`: The 0-indexed page number of the resume image where this change should be applied.
     4.  **Format Output:** You MUST return a single, valid JSON object enclosed in a \`\`\`json markdown block. Adhere strictly to the specified format.
@@ -105,7 +105,7 @@ export const generateTextAssets = async (
 };
 
 /**
- * STEP 2a: Generates the final, cohesive resume text based on user-approved changes.
+ * STEP 2a: Generates the final, cohesive resume text based on user-approved changes (for UI display).
  */
 const generateFinalResumeText = async (
   originalResumeText: string,
@@ -153,30 +153,37 @@ const generateFinalResumeText = async (
 };
 
 /**
- * STEP 2b: Generates a new resume image using an original image as a template and new text.
+ * STEP 2b: Applies a single, atomic text change to an image.
  */
-const generateImageAsset = async (
-  resumeImageBase64: string,
-  newText: string,
+const applyAtomicChangeToImage = async (
+  currentImageStateBase64: string,
+  change: ChangeDetail,
   pageNumber: number
 ): Promise<string> => {
-    console.log(`Generating image for page ${pageNumber}...`);
+    console.log(`Applying atomic change to page ${pageNumber}: ${change.summary}`);
+
     const prompt = `
-        You are a visual design replication expert. Your task is to perfectly recreate a new image from a template, but with updated English text.
+        You are a hyper-precise visual document editor. Your task is to perform a single, atomic "find and replace" operation on the text of the provided image. You must be extremely careful to not alter any other part of the document.
 
-        **Instructions:**
-        1. **Analyze Template:** The provided image is your visual template. Analyze its layout, fonts, colors, spacing, and all design elements.
-        2. **Replace Text:** Conceptually remove all existing text from the template. Then, place the "New English Text to Insert" provided below into the appropriate sections, ensuring it is rendered correctly and legibly.
-        3. **Maintain Visual Fidelity:** The new image MUST be a perfect visual replica of the original. The only difference should be the text content. The output must be a single image. Do not add any new visual elements or change the design.
+        **CRITICAL RULES:**
+        1.  **LOCATE TEXT:** Find the specific text on the image that corresponds to the "Original Text" provided below. This is a transcription and might have small errors, so use semantic understanding to find the correct text block. The section is "${change.section}".
+        2.  **REPLACE TEXT:** Replace ONLY that located text with the "New Text".
+        3.  **PERFECT STYLE MATCH:** The new text you render MUST perfectly replicate the font, size, weight, color, leading, and alignment of the original text it is replacing. It should look like it was always there.
+        4.  **MINIMAL IMPACT & MICRO-REFLOW:** This is the most important rule. You must NOT change any other part of the image. If the new text is longer or shorter than the original, you must subtly and intelligently reflow the surrounding text and elements *within the same section* to make it fit naturally. Do not just shrink or stretch the new text. The final result should look professionally typeset.
+        5.  **LEGIBILITY IS MANDATORY:** The generated text MUST be perfectly sharp, clear, and legible. Under NO circumstances should you output blurry, distorted, or garbled text. If you cannot perform the replacement cleanly, you must fail safely by returning the original image unmodified.
+        6.  **SINGLE IMAGE OUTPUT:** Your response must contain only the final, edited image.
 
-        **CRITICAL:** The output MUST contain only the provided "New English Text to Insert". Do not use any placeholder text, lorem ipsum, or garbled characters. All text on the final image must be legible English.
-
-        **New English Text to Insert:**
+        **Original Text to Find:**
         ---
-        ${newText}
+        ${change.originalText}
+        ---
+
+        **New Text to Replace It With:**
+        ---
+        ${change.newText}
         ---
     `;
-    const imagePart = base64ToPart(resumeImageBase64);
+    const imagePart = base64ToPart(currentImageStateBase64);
     const textPart = { text: prompt };
 
     const response = await ai.models.generateContent({
@@ -189,17 +196,18 @@ const generateImageAsset = async (
     
     for (const part of response.candidates[0].content.parts) {
         if (part.inlineData) {
-            console.log(`Successfully generated image for page ${pageNumber}.`);
+            console.log(`Successfully applied change to page ${pageNumber}.`);
             return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
         }
     }
     
-    console.error(`AI failed to generate an image for page ${pageNumber}. Raw response:`, JSON.stringify(response, null, 2));
-    throw new Error(`AI failed to generate an image for page ${pageNumber}.`);
+    console.error(`AI failed to apply change for page ${pageNumber}. Raw response:`, JSON.stringify(response, null, 2));
+    throw new Error(`AI failed to generate a visually updated image for page ${pageNumber} for change: "${change.summary}"`);
 };
 
+
 /**
- * STEP 2 Orchestrator: Runs the final text synthesis and selective image generation.
+ * STEP 2 Orchestrator: Runs text synthesis and then sequentially patches images with approved changes.
  */
 export const generateFinalAssets = async (
   originalResumeImages: string[],
@@ -207,23 +215,37 @@ export const generateFinalAssets = async (
   allProposedChanges: ChangeDetail[],
   appliedChanges: ChangeDetail[],
 ): Promise<FinalAssetsResult> => {
-    console.log("Step 2a: Synthesizing final resume text based on user selections...");
+    // Step 2a: Get the final text content for the UI results page.
+    console.log("Step 2a: Synthesizing final resume text for UI display...");
     const finalResumeTextPerPage = await generateFinalResumeText(originalResumeText, allProposedChanges, appliedChanges, originalResumeImages.length);
 
-    const pagesToRegenerate = new Set<number>();
-    appliedChanges.forEach(change => pagesToRegenerate.add(change.pageIndex));
+    // Step 2b: Process each page, applying changes sequentially if they exist.
+    console.log("Step 2b: Beginning sequential atomic patching for pages with changes...");
     
-    console.log(`Step 2b: ${pagesToRegenerate.size} pages require visual regeneration.`);
+    const processPageSequentially = async (originalImage: string, pageIndex: number): Promise<string> => {
+        const changesForThisPage = appliedChanges.filter(c => c.pageIndex === pageIndex);
 
-    const finalImagePromises = originalResumeImages.map((originalImage, index) => {
-        if (pagesToRegenerate.has(index)) {
-            // This page was changed, so regenerate it
-            return generateImageAsset(originalImage, finalResumeTextPerPage[index], index + 1);
-        } else {
-            // This page was not changed, return the original image
-            return Promise.resolve(originalImage);
+        if (changesForThisPage.length === 0) {
+            // No changes, return the original image immediately.
+            return originalImage;
         }
-    });
+
+        console.log(`Applying ${changesForThisPage.length} sequential changes to page ${pageIndex + 1}...`);
+
+        // Start the chain with the original image for this page.
+        let currentImageState = originalImage;
+        
+        // Loop through each change for the page, awaiting each one.
+        // This creates the sequential chain, passing the output of one step as the input to the next.
+        for (const change of changesForThisPage) {
+            currentImageState = await applyAtomicChangeToImage(currentImageState, change, pageIndex + 1);
+        }
+
+        console.log(`Finished applying all changes for page ${pageIndex + 1}.`);
+        return currentImageState;
+    };
+
+    const finalImagePromises = originalResumeImages.map((img, index) => processPageSequentially(img, index));
 
     const finalImages = await Promise.all(finalImagePromises);
 
