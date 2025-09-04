@@ -153,15 +153,14 @@ const generateFinalResumeText = async (
 };
 
 /**
- * STEP 2b: Applies a single, atomic text change to an image.
+ * STEP 2b: Applies a single, atomic text change to an image with a retry mechanism.
  */
 const applyAtomicChangeToImage = async (
   currentImageStateBase64: string,
   change: ChangeDetail,
-  pageNumber: number
+  pageNumber: number,
+  maxRetries: number = 2 // Total attempts will be maxRetries + 1
 ): Promise<string> => {
-    console.log(`Applying atomic change to page ${pageNumber}: ${change.summary}`);
-
     const isAddition = !change.originalText || change.originalText.trim() === '';
 
     const prompt = isAddition 
@@ -207,31 +206,49 @@ const applyAtomicChangeToImage = async (
         ${change.newText}
         ---
     `;
-    const imagePart = base64ToPart(currentImageStateBase64);
-    const textPart = { text: prompt };
 
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image-preview',
-        contents: { parts: [imagePart, textPart] },
-        config: {
-            responseModalities: [Modality.IMAGE, Modality.TEXT],
-        },
-    });
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        if (attempt > 0) {
+            console.warn(`Retrying change on page ${pageNumber}, attempt ${attempt + 1}/${maxRetries + 1}: ${change.summary}`);
+            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        } else {
+            console.log(`Applying atomic change to page ${pageNumber}, attempt 1/${maxRetries + 1}: ${change.summary}`);
+        }
 
-    if (!response.candidates?.[0]?.content?.parts) {
-        console.error(`AI returned an invalid response structure for page ${pageNumber}. Raw response:`, JSON.stringify(response, null, 2));
-        throw new Error(`AI returned an invalid response structure for page ${pageNumber} for change: "${change.summary}"`);
-    }
-    
-    for (const part of response.candidates[0].content.parts) {
-        if (part.inlineData) {
-            console.log(`Successfully applied change to page ${pageNumber}.`);
-            return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+        const imagePart = base64ToPart(currentImageStateBase64);
+        const textPart = { text: prompt };
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash-image-preview',
+            contents: { parts: [imagePart, textPart] },
+            config: {
+                responseModalities: [Modality.IMAGE, Modality.TEXT],
+            },
+        });
+
+        if (!response.candidates?.[0]?.content?.parts) {
+            console.warn(`Attempt ${attempt + 1}: AI returned invalid response structure for page ${pageNumber}. Continuing to next attempt.`);
+            continue;
+        }
+        
+        const imagePartFound = response.candidates[0].content.parts.find(p => p.inlineData);
+
+        if (imagePartFound && imagePartFound.inlineData) {
+            const newImageBase64 = `data:${imagePartFound.inlineData.mimeType};base64,${imagePartFound.inlineData.data}`;
+            
+            if (newImageBase64 !== currentImageStateBase64) {
+                console.log(`Successfully applied and verified change to page ${pageNumber} on attempt ${attempt + 1}.`);
+                return newImageBase64;
+            } else {
+                console.warn(`Attempt ${attempt + 1}: AI returned an identical (unchanged) image for page ${pageNumber}.`);
+            }
+        } else {
+            console.warn(`Attempt ${attempt + 1}: AI response for page ${pageNumber} did not contain an image part.`);
         }
     }
     
-    console.error(`AI failed to apply change for page ${pageNumber}. Raw response:`, JSON.stringify(response, null, 2));
-    throw new Error(`AI failed to generate a visually updated image for page ${pageNumber} for change: "${change.summary}"`);
+    console.error(`AI failed to apply change for page ${pageNumber} after ${maxRetries + 1} attempts.`);
+    throw new Error(`AI failed to generate a visually updated image for page ${pageNumber} for change: "${change.summary}" after multiple retries.`);
 };
 
 
