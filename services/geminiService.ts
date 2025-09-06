@@ -153,69 +153,39 @@ const generateFinalResumeText = async (
 };
 
 /**
- * STEP 2b: Applies a single, atomic text change to an image with a retry mechanism.
+ * STEP 2b: Applies a batch of changes to a single image with a retry mechanism.
  */
-const applyAtomicChangeToImage = async (
-  currentImageStateBase64: string,
-  change: ChangeDetail,
-  pageNumber: number,
-  maxRetries: number = 2 // Total attempts will be maxRetries + 1
+const applyBatchedChangesToImage = async (
+    originalImageBase64: string,
+    changes: ChangeDetail[],
+    pageNumber: number,
+    maxRetries: number = 2
 ): Promise<string> => {
-    const isAddition = !change.originalText || change.originalText.trim() === '';
-
-    const prompt = isAddition 
-    ? `
-        You are a hyper-precise visual document editor. Your task is to ADD new text to the provided image within a specific section, ensuring it integrates seamlessly with the existing content and style.
+    const prompt = `
+        You are a hyper-precise visual document editor. Your task is to perform a series of "find and replace" and "add text" operations on the provided image. You must be extremely careful to not alter any other part of the document.
 
         **CRITICAL RULES:**
-        1.  **LOCATE SECTION:** Find the section named "${change.section}" on the image.
-        2.  **ADD TEXT:** Add the "New Text" provided below into this section. You must intelligently determine the best placement (e.g., as a new bullet point at the end of a list, or as a new paragraph).
-        3.  **PERFECT STYLE MATCH:** The new text you render MUST perfectly replicate the font, size, weight, color, leading, and alignment of the other text within the "${change.section}" section.
-        4.  **MINIMAL IMPACT & MICRO-REFLOW:** You must NOT change any other part of the image. You must subtly and intelligently reflow the surrounding text and elements *within the same section* to make space for the new content.
-        5.  **LEGIBILITY IS MANDATORY:** The generated text MUST be perfectly sharp, clear, and legible.
-        6.  **SINGLE IMAGE OUTPUT:** Your response must contain only the final, edited image.
+        1.  **PERFORM ALL EDITS:** Apply every single edit listed in the "List of Changes" below. If a change has an empty "originalText", it is an ADDITION. Otherwise, it is a REPLACEMENT.
+        2.  **PERFECT STYLE MATCH:** For every change, the new text you render MUST perfectly replicate the font, size, weight, color, leading, and alignment of the original text or the surrounding text in that section.
+        3.  **MINIMAL IMPACT & INTELLIGENT REFLOW:** This is the most important rule. You must NOT change any other part of the image not specified in the edits. For each change, you must subtly and intelligently reflow the surrounding text and elements *within the same section* to make it fit naturally. The final result should look professionally typeset.
+        4.  **LEGIBILITY IS MANDATORY:** The generated text MUST be perfectly sharp, clear, and legible. Under NO circumstances should you output blurry, distorted, or garbled text.
+        5.  **SINGLE IMAGE OUTPUT:** Your response must contain only the final, edited image with all changes applied.
 
-        **Section to Add To:**
+        **List of Changes to Apply:**
         ---
-        ${change.section}
-        ---
-
-        **New Text to Add:**
-        ---
-        ${change.newText}
-        ---
-    `
-    : `
-        You are a hyper-precise visual document editor. Your task is to perform a single, atomic "find and replace" operation on the text of the provided image. You must be extremely careful to not alter any other part of the document.
-
-        **CRITICAL RULES:**
-        1.  **LOCATE TEXT:** Find the specific text on the image that corresponds to the "Original Text" provided below. This is a transcription and might have small errors, so use semantic understanding to find the correct text block. The section is "${change.section}".
-        2.  **REPLACE TEXT:** Replace ONLY that located text with the "New Text".
-        3.  **PERFECT STYLE MATCH:** The new text you render MUST perfectly replicate the font, size, weight, color, leading, and alignment of the original text it is replacing. It should look like it was always there.
-        4.  **MINIMAL IMPACT & MICRO-REFLOW:** This is the most important rule. You must NOT change any other part of the image. If the new text is longer or shorter than the original, you must subtly and intelligently reflow the surrounding text and elements *within the same section* to make it fit naturally. Do not just shrink or stretch the new text. The final result should look professionally typeset.
-        5.  **LEGIBILITY IS MANDATORY:** The generated text MUST be perfectly sharp, clear, and legible. Under NO circumstances should you output blurry, distorted, or garbled text. If you cannot perform the replacement cleanly, you must fail safely by returning the original image unmodified.
-        6.  **SINGLE IMAGE OUTPUT:** Your response must contain only the final, edited image.
-
-        **Original Text to Find:**
-        ---
-        ${change.originalText}
-        ---
-
-        **New Text to Replace It With:**
-        ---
-        ${change.newText}
+        ${JSON.stringify(changes, null, 2)}
         ---
     `;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         if (attempt > 0) {
-            console.warn(`Retrying change on page ${pageNumber}, attempt ${attempt + 1}/${maxRetries + 1}: ${change.summary}`);
+            console.warn(`Retrying page ${pageNumber} generation, attempt ${attempt + 1}/${maxRetries + 1}`);
             await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
         } else {
-            console.log(`Applying atomic change to page ${pageNumber}, attempt 1/${maxRetries + 1}: ${change.summary}`);
+            console.log(`Generating page ${pageNumber} with ${changes.length} changes, attempt 1/${maxRetries + 1}.`);
         }
 
-        const imagePart = base64ToPart(currentImageStateBase64);
+        const imagePart = base64ToPart(originalImageBase64);
         const textPart = { text: prompt };
 
         const response = await ai.models.generateContent({
@@ -236,8 +206,10 @@ const applyAtomicChangeToImage = async (
         if (imagePartFound && imagePartFound.inlineData) {
             const newImageBase64 = `data:${imagePartFound.inlineData.mimeType};base64,${imagePartFound.inlineData.data}`;
             
-            if (newImageBase64 !== currentImageStateBase64) {
-                console.log(`Successfully applied and verified change to page ${pageNumber} on attempt ${attempt + 1}.`);
+            // A simple check to see if the image was modified.
+            // This isn't perfect, but it's a good heuristic to detect a no-op from the model.
+            if (newImageBase64 !== originalImageBase64) {
+                console.log(`Successfully generated page ${pageNumber} on attempt ${attempt + 1}.`);
                 return newImageBase64;
             } else {
                 console.warn(`Attempt ${attempt + 1}: AI returned an identical (unchanged) image for page ${pageNumber}.`);
@@ -247,13 +219,13 @@ const applyAtomicChangeToImage = async (
         }
     }
     
-    console.error(`AI failed to apply change for page ${pageNumber} after ${maxRetries + 1} attempts.`);
-    throw new Error(`AI failed to generate a visually updated image for page ${pageNumber} for change: "${change.summary}" after multiple retries.`);
+    console.error(`AI failed to generate page ${pageNumber} after ${maxRetries + 1} attempts.`);
+    throw new Error(`AI failed to generate a visually updated image for page ${pageNumber} after multiple retries.`);
 };
 
 
 /**
- * STEP 2 Orchestrator: Runs text synthesis and then sequentially patches images with approved changes.
+ * STEP 2 Orchestrator: Runs text synthesis and then generates final images by applying changes on a per-page basis.
  */
 export const generateFinalAssets = async (
   originalResumeImages: string[],
@@ -265,33 +237,22 @@ export const generateFinalAssets = async (
     console.log("Step 2a: Synthesizing final resume text for UI display...");
     const finalResumeTextPerPage = await generateFinalResumeText(originalResumeText, allProposedChanges, appliedChanges, originalResumeImages.length);
 
-    // Step 2b: Process each page, applying changes sequentially if they exist.
-    console.log("Step 2b: Beginning sequential atomic patching for pages with changes...");
+    // Step 2b: Process each page, applying a batch of changes if they exist.
+    console.log("Step 2b: Beginning batched image generation for pages with changes...");
     
-    const processPageSequentially = async (originalImage: string, pageIndex: number): Promise<string> => {
+    const processPage = async (originalImage: string, pageIndex: number): Promise<string> => {
         const changesForThisPage = appliedChanges.filter(c => c.pageIndex === pageIndex);
 
         if (changesForThisPage.length === 0) {
             // No changes, return the original image immediately.
+            console.log(`Page ${pageIndex + 1} has no changes. Using original image.`);
             return originalImage;
         }
-
-        console.log(`Applying ${changesForThisPage.length} sequential changes to page ${pageIndex + 1}...`);
-
-        // Start the chain with the original image for this page.
-        let currentImageState = originalImage;
         
-        // Loop through each change for the page, awaiting each one.
-        // This creates the sequential chain, passing the output of one step as the input to the next.
-        for (const change of changesForThisPage) {
-            currentImageState = await applyAtomicChangeToImage(currentImageState, change, pageIndex + 1);
-        }
-
-        console.log(`Finished applying all changes for page ${pageIndex + 1}.`);
-        return currentImageState;
+        return applyBatchedChangesToImage(originalImage, changesForThisPage, pageIndex + 1);
     };
 
-    const finalImagePromises = originalResumeImages.map((img, index) => processPageSequentially(img, index));
+    const finalImagePromises = originalResumeImages.map((img, index) => processPage(img, index));
 
     const finalImages = await Promise.all(finalImagePromises);
 
