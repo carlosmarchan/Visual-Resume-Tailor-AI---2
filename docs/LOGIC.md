@@ -24,7 +24,7 @@ The application logic is broken down into five distinct stages, moving the user 
 ### Step 2: AI Text Analysis & Content Generation (`generateTextAssets`)
 
 1.  **State Change**: The application transitions to the `PROCESSING_TEXT` state, displaying an informative loading screen.
-2.  **API Call**: The `App.tsx` component calls the `generateTextAssets` function in the `geminiService`. This is the first major interaction with the AI.
+2.  **API Call**: The `App.tsx` component calls the `generateTextAssets` function in the `geminiService`. This is the first major interaction with the AI. In parallel, it also calls `extractOriginalText` to get a plain-text version of the user's resume.
 3.  **Prompt Construction**: A detailed prompt is sent to the `gemini-2.5-flash` model. This prompt includes:
     *   The base64 resume images.
     *   The job description details.
@@ -40,8 +40,7 @@ The application logic is broken down into five distinct stages, moving the user 
         *   `originalText`: A verbatim transcription of the text to be replaced. This is critical for the user's review process.
         *   `newText`: The proposed new text.
         *   `pageIndex`: The 0-indexed page number where the change should occur.
-5.  **Parallel Text Extraction**: Simultaneously, the `extractOriginalText` function is called. It sends the resume images to the AI with a simple prompt to transcribe all visible text. This provides a clean text version of the original resume for the user.
-6.  **State Update**: The parsed JSON result and the original transcribed text are saved to the application's state. The app then transitions to the `REFINEMENT` stage.
+5.  **State Update**: The parsed JSON result and the original transcribed text are saved to the application's state. The app then transitions to the `REFINEMENT` stage.
 
 ### Step 3: User Refinement & Approval (`RefinementScreen.tsx`)
 
@@ -52,25 +51,24 @@ The application logic is broken down into five distinct stages, moving the user 
 
 ### Step 4: Final Visual Asset Generation (`generateFinalAssets`)
 
-This step is the core of the application's unique functionality and is orchestrated by the `generateFinalAssets` function. It uses a **"Sequential Atomic Patching"** strategy for maximum reliability.
+This step is the core of the application's unique functionality and is orchestrated by the `generateFinalAssets` function. It uses a **"Batched Changes per Page"** strategy for efficiency.
 
 1.  **State Change**: The app enters the `PROCESSING_IMAGES` state.
-2.  **Orchestration**: `generateFinalAssets` receives the original images and the list of user-approved changes.
+2.  **Orchestration**: `generateFinalAssets` receives the original images, the original text, all proposed changes (for context), and the list of user-approved changes. It then runs two processes in parallel:
+    *   **A) Final Text Synthesis**: It calls `generateFinalResumeText`, which asks the AI to create the complete, final plain-text version of the resume by applying only the user-approved changes to the original text. This is used for the "copy-paste" friendly output on the results screen.
+    *   **B) Visual Generation**: It begins processing each resume page image.
 3.  **Page-by-Page Processing**: The function iterates through each original resume image.
     *   If a page has **no approved changes**, its original image is carried over directly to the final output.
-    -   If a page **has one or more approved changes**, the sequential patching process begins for that page:
-        a.  A temporary variable, `currentImageState`, is initialized with the original page's base64 image data.
-        b.  The function loops through each approved change for that specific page.
-        c.  In each loop, it calls `applyAtomicChangeToImage`, passing in the `currentImageState` and the details of the single change to be applied.
-        d.  **`applyAtomicChangeToImage`**: This function calls the `gemini-2.5-flash-image-preview` model with a hyper-specific prompt. The AI is instructed to:
-            i.  **Visually locate** the `originalText` on the input image.
-            ii. **Replace it** with the `newText`.
-            iii. **Perfectly match** all visual styles (font, size, color, spacing).
-            iv. **Perform a "micro-reflow"** of surrounding content to ensure the new text fits naturally.
-            v. **Prioritize legibility** above all else, failing safely rather than producing garbled text.
-        e.  The image returned by the AI becomes the new value of `currentImageState`.
-        f.  This `currentImageState` is then used as the input for the *next* change in the sequence for that page.
-4.  **Finalization**: This chained process ensures that multiple edits on a single page are applied cleanly, one on top of the other. `Promise.all` waits for all pages to complete their processing. The function returns the array of final, visually-edited images.
+    *   If a page **has one or more approved changes**, the batch editing process begins for that page:
+        a.  All approved changes for that specific page are collected into a single array (a "batch").
+        b.  The `applyBatchedChangesToImage` function is called, passing the original image for that page and the entire batch of changes.
+        c.  **`applyBatchedChangesToImage`**: This function calls the `gemini-2.5-flash-image-preview` model with a specific prompt. The AI is instructed to:
+            i.  **Perform all edits** listed in the provided batch.
+            ii. **Perfectly match** all visual styles (font, size, color, spacing).
+            iii. **Perform a "micro-reflow"** of surrounding content to ensure the new text fits naturally.
+            iv. **Prioritize legibility** and output a single, clean image.
+        d.  **Retry Logic**: This function includes a retry mechanism. If the AI fails to return a valid or changed image, it will automatically retry the request up to two more times before failing.
+4.  **Finalization**: `Promise.all` waits for all pages to complete their processing. The function returns an object containing both the array of final, visually-edited images and the array of final resume text per page.
 
 ### Step 5: Displaying Results (`ResultsScreen.tsx`)
 
