@@ -19,7 +19,7 @@ You spent hours crafting the perfect resume in Canva, Figma, or Word. It looks a
 
 ## How It Works: The "Surgical" AI Editing Strategy
 
-We knew a standard "AI image editor" wouldn't work. They're prone to garbled text and broken layouts. So, we developed a more reliable, multi-step process designed for precision and quality.
+We knew a standard "AI image editor" wouldn't work. They're prone to garbled text and broken layouts. So, we developed a more reliable, multi-step process designed for precision and quality. For a complete technical breakdown of this workflow and the R&D that led to it, see the [Application Logic](./docs/LOGIC.md) and [Image Generation History](./docs/image_generation_history.md) documents.
 
 ### Step 1: Intelligent Text Analysis (`gemini-2.5-flash`)
 
@@ -46,7 +46,7 @@ This "batched" method is highly efficient and dramatically reduces errors, ensur
 -   **Frontend**: React, TypeScript, Tailwind CSS
 -   **AI Engine**: Google Gemini API
     -   **`gemini-2.5-flash`**: Used for all text generation, analysis, and JSON structuring tasks due to its speed and strong instruction-following capabilities.
-    -   **`gemini-2.5-flash-image-preview`**: The core multi-modal model used for the "Batched Changes per Page" process, enabling precise in-painting and text replacement on the resume images.
+    -   **`gemini-2.5-flash-image-preview`**: The core multi-modal model used for the "Batched Changes per Page" process, enabling precise in-painting and text replacement on the resume images. (See our [detailed usage analysis](./docs/NANO_BANANA_API_USAGE.md)).
 -   **PDF Generation**: `jsPDF` for client-side PDF creation.
 
 ---
@@ -73,6 +73,8 @@ The application code in `services/geminiService.ts` will automatically pick up t
 ---
 
 ## Project Structure
+
+The application follows a modular, screen-based architecture orchestrated by the main `App.tsx` component. For a detailed breakdown of how the components interact, see the [Component & Rendering Flow documentation](./docs/COMPONENT_FLOW.md).
 
 ```
 /

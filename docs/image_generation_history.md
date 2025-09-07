@@ -52,23 +52,39 @@ While a logical step up, this approach overestimated the model's capabilities as
 
 ---
 
-## Attempt 3: "Sequential Atomic Patching" (Current Solution)
+## Attempt 3: "Sequential Atomic Patching"
 
-This strategy was born from the realization that breaking a complex problem into a series of simple, verifiable steps yields far more reliable results. It's designed to mimic how a human designer would meticulously edit a document: one small change at a time.
+This strategy was born from the realization that breaking a complex problem into a series of simple, verifiable steps could yield more reliable results. It was designed to mimic how a human designer would meticulously edit a document: one small change at a time.
 
 ### The Logic
 
-1.  **Isolate Changes:** The task is atomized. Instead of handling all changes at once, the AI is only ever asked to perform **one single change** per API call.
-2.  **Visual Targeting:** The prompt for each call instructs the AI to *visually locate* the `originalText`, making it resilient to minor transcription errors. It's asked to find text that *looks like* the `originalText` in the specified `section`, rather than relying on a perfect string match.
-3.  **Sequential Chaining:** This is the key innovation. For a page with multiple edits, the process is:
+1.  **Isolate Changes:** The task was atomized. Instead of handling all changes at once, the AI was only asked to perform **one single change** per API call.
+2.  **Visual Targeting:** The prompt for each call instructed the AI to *visually locate* the `originalText`, making it resilient to minor transcription errors. It was asked to find text that *looked like* the `originalText` in the specified `section`.
+3.  **Sequential Chaining:** For a page with multiple edits, the process was:
     a.  Take the **original image** and apply **Change #1**.
-    b.  The **output image** from that operation becomes the **input image** for applying **Change #2**.
-    c.  The output from that becomes the input for **Change #3**, and so on.
-4.  **Micro-Reflow Command:** The prompt for each atomic operation includes a critical instruction: "subtly and intelligently reflow the surrounding text and elements *within the same section* to make it fit naturally." This gives the AI a clear, constrained directive for handling text of varying lengths.
-5.  **Strict Quality Mandate:** The prompt explicitly commands the AI to prioritize legibility, instructing it to fail safely (by returning the original image) rather than producing a garbled result.
+    b.  The **output image** from that operation became the **input image** for applying **Change #2**, and so on.
+
+### Why It Was Superseded
+
+While this approach drastically improved reliability and isolated failures compared to the first two attempts, it introduced significant **latency** and increased **costs**. A page with five changes would require five separate, sequential API calls. This made the user wait much longer for the final result and was inefficient, leading to the development of the current, more balanced approach.
+
+---
+
+## Attempt 4: "Batched Changes per Page" (Current Solution)
+
+This is the current, optimized strategy implemented in the application. It balances the reliability of focused tasks with the efficiency of minimizing API calls.
+
+### The Logic
+
+1.  **Group by Page:** The core idea is to process each resume page independently.
+2.  **Create a Batch:** For each page that requires modification, all user-approved changes for that specific page are collected into a single array (a "batch").
+3.  **Single API Call per Page:** A single API call is made to `gemini-2.5-flash-image-preview`, providing two key inputs:
+    *   The **original image** for that page.
+    *   The **entire batch of changes** for that page.
+4.  **Comprehensive Prompt:** The prompt instructs the model to perform all the edits listed in the batch simultaneously on that single page, while still adhering to the strict rules of matching style and intelligently reflowing content.
 
 ### Why It Works
 
-*   **Reduced Cognitive Load:** Each AI task is incredibly simple and focused, dramatically reducing the chance of error or hallucination.
-*   **Isolation of Failure:** If one atomic change fails, it doesn't corrupt the entire page. The previous successful changes are still intact.
-*   **Stateful Editing:** The sequential process builds upon previous successes, creating a stable foundation for each subsequent edit. It's the closest an AI can get to a stateful editing session.
+*   **Balanced Efficiency and Reliability**: It strikes a perfect balance. The cognitive load on the AI is limited to a single page (which modern models can handle reliably), while the number of API calls is minimized to one per page that has changes. This dramatically reduces latency and API costs compared to the sequential atomic approach.
+*   **Reduced Complexity**: The application logic is simpler than sequential chaining, as it doesn't need to manage and pass along intermediate images between steps.
+*   **Leverages Modern Model Capabilities**: This strategy is tailored to the strengths of advanced multi-modal models like `gemini-2.5-flash-image-preview`, which are capable of performing multiple, precise edits within a single, constrained context with high fidelity.
