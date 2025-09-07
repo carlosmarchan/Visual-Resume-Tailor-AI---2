@@ -1,7 +1,5 @@
 # Visual Resume Tailor AI: Your One-Click Application Toolkit.
 
-![Header](https://i.imgur.com/8Q9s1Qc.png)
-
 You spent hours crafting the perfect resume in Canva, Figma, or Word. It looks amazing. But now you have to tailor it for every single job application—a tedious, manual process that risks messing up your beautiful layout with every text change.
 
 **Visual Resume Tailor AI is your one-click application toolkit.** It's a sophisticated application that uses AI to generate a complete package for a specific job—a rewritten resume, a tailored cover letter, and ATS keywords—all while leaving your original design pixel-perfect. Stop the copy-paste grind. Start applying faster.
