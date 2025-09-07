@@ -21,28 +21,25 @@ You spent hours crafting the perfect resume in Canva, Figma, or Word. It looks a
 
 ## How It Works: The "Surgical" AI Editing Strategy
 
-We knew a standard "AI image editor" wouldn't work. They're prone to garbled text and broken layouts. So, we developed a more reliable, three-step process designed for precision and quality.
+We knew a standard "AI image editor" wouldn't work. They're prone to garbled text and broken layouts. So, we developed a more reliable, multi-step process designed for precision and quality.
 
 ### Step 1: Intelligent Text Analysis (`gemini-2.5-flash`)
 
-First, we focus only on the words. You upload your resume images and the job description. The AI reads everything and generates a complete package of text-only assets: a tailored cover letter, ATS keywords, and a detailed list of proposed resume edits.
+First, we focus only on the words. You upload your resume images and the job description. The AI reads everything and generates a complete package of text-only assets: a tailored cover letter, ATS keywords, and a detailed list of proposed resume edits for your review.
 
 ### Step 2: Your Editorial Review
 
 This is the most important step. We present every suggested resume change to you. You see the original text and the new text side-by-side. Using simple toggles, you approve the changes you like and reject the ones you don't. Nothing happens to your visual resume without your explicit permission.
 
-### Step 3: "Sequential Atomic Patching" (`gemini-2.5-flash-image-preview`)
+### Step 3: Final Asset Generation (`gemini-2.5-flash-image-preview`)
 
-This is our secret sauce. Once you confirm your edits, the visual generation begins. Instead of asking the AI to "re-create" the whole page (which is unreliable), we command it to perform a series of tiny, surgical edits.
+This is our secret sauce. Once you confirm your edits, the visual generation begins. Instead of asking the AI to "re-create" the whole page (which is unreliable), we command it to perform a batch of surgical edits on a per-page basis.
 
-For each page, it applies *only the changes you approved*, one by one:
+1.  For each page, the AI receives the **original image** and a **"batch"** of all your approved edits for that specific page.
+2.  It performs all edits in one go, finding the exact text and replacing it while perfectly matching the style and intelligently reflowing the surrounding content.
+3.  In parallel, a final plain-text version of the resume is generated for easy copy-pasting into online forms.
 
-1.  It takes the **original image** and the **first approved change**.
-2.  The AI performs a "micro-edit"—finding the exact text and replacing it while perfectly matching the style and reflowing the surrounding content.
-3.  The **output image** from this first step becomes the **input image** for the second approved change.
-4.  This process repeats, creating a chain where each change is a small, "atomic patch" on top of the last.
-
-This sequential method is like a microscopic graphic designer working at lightning speed. It dramatically reduces errors and ensures the final visual resume meets the highest quality standards.
+This "batched" method is highly efficient and dramatically reduces errors, ensuring the final visual resume meets the highest quality standards.
 
 ---
 
@@ -51,7 +48,7 @@ This sequential method is like a microscopic graphic designer working at lightni
 -   **Frontend**: React, TypeScript, Tailwind CSS
 -   **AI Engine**: Google Gemini API
     -   **`gemini-2.5-flash`**: Used for all text generation, analysis, and JSON structuring tasks due to its speed and strong instruction-following capabilities.
-    -   **`gemini-2.5-flash-image-preview`**: The core multi-modal model used for the "Sequential Atomic Patching" process, enabling precise in-painting and text replacement on the resume images.
+    -   **`gemini-2.5-flash-image-preview`**: The core multi-modal model used for the "Batched Changes per Page" process, enabling precise in-painting and text replacement on the resume images.
 -   **PDF Generation**: `jsPDF` for client-side PDF creation.
 
 ---
